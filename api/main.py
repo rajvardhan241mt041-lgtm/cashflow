@@ -41,7 +41,25 @@ def predict_invoice(data: InvoiceData):
         raise HTTPException(status_code=503, detail="Model is not yet trained or loaded.")
         
     # Convert input to DataFrame for XGBoost and SHAP
-    df_features = pd.DataFrame([data.features])
+    # We load baseline data to fill in missing features the user didn't provide in the UI
+    baseline_path = os.path.join(BASE_DIR, "models", "baseline_data.csv")
+    if os.path.exists(baseline_path):
+        baseline_df = pd.read_csv(baseline_path)
+        defaults = {}
+        for col in baseline_df.columns:
+            if col != 'Days_Overdue_Delay':
+                if pd.api.types.is_numeric_dtype(baseline_df[col]):
+                    defaults[col] = baseline_df[col].median()
+                else:
+                    defaults[col] = baseline_df[col].mode()[0]
+        
+        defaults.update(data.features)
+        df_features = pd.DataFrame([defaults])
+        
+        if model.feature_names:
+            df_features = df_features[model.feature_names]
+    else:
+        df_features = pd.DataFrame([data.features])
     
     dmatrix = xgb.DMatrix(df_features)
     

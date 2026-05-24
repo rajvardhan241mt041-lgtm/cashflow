@@ -41,10 +41,10 @@ def detect_drift(baseline_df: pd.DataFrame, recent_df: pd.DataFrame, threshold=0
         if col in recent_df.columns:
             psi = calculate_psi(baseline_df[col].dropna(), recent_df[col].dropna())
             if psi > threshold:
-                print(f"🚨 DRIFT DETECTED in '{col}' -> PSI: {psi:.4f} (Threshold: {threshold})")
+                print(f"HIGH DRIFT DETECTED in '{col}' -> PSI: {psi:.4f} (Threshold: {threshold})")
                 drift_detected = True
             elif psi > (threshold / 2):
-                print(f"⚠️ Warning in '{col}' -> PSI: {psi:.4f}")
+                print(f"Warning in '{col}' -> PSI: {psi:.4f}")
     
     if drift_detected:
         print("Overall Status: DRIFT DETECTED. Model retraining triggered.")
