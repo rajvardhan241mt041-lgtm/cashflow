@@ -60,13 +60,14 @@ if submit_btn:
                     st.success(f"✅ **Action:** {action}")
             
             with col2:
-                st.markdown("#### Top Drivers (SHAP Values)")
-                reasons = data["Top_SHAP_Reasons"]
-                for i, r in enumerate(reasons):
-                    if "error" in r:
-                        st.error(f"SHAP Explainer Error: {r['error']}")
+                st.subheader("Top Drivers (SHAP Values)")
+                for i, reason in enumerate(data.get("Top_SHAP_Reasons", []), 1):
+                    if "error" in reason:
+                        st.write("Explainability unavailable.")
                     else:
-                        st.write(f"{i+1}. **{r['feature']}**: {round(r['impact'], 2)} days")
+                        impact_val = reason['impact']
+                        direction = "increased" if impact_val > 0 else "decreased"
+                        st.write(f"{i}. **{reason['feature']}** {direction} the predicted delay by **{abs(impact_val):.2f} days**")
         else:
             st.error(f"API Error {response.status_code}: {response.text}")
     except requests.exceptions.RequestException as e:
