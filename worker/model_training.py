@@ -39,4 +39,8 @@ def train_and_save_model(df: pd.DataFrame):
     model.save_model(MODEL_PATH)
     print(f"Model saved to {MODEL_PATH}")
     
+    BASELINE_PATH = os.path.join(BASE_DIR, "models", "baseline_data.csv")
+    X_train.to_csv(BASELINE_PATH, index=False)
+    print(f"Baseline data saved to {BASELINE_PATH}")
+    
     return True

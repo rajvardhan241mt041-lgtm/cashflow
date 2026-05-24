@@ -23,13 +23,39 @@ def run_pipeline():
     print("2. Running data preparation (Date engineering, encoding, dropping leakage)...")
     cleaned_df = prepare_data(df)
     
-    # In a fully mature setup, we'd check for drift here by evaluating recent rows.
-    # For now, we simulate retraining to keep the model fresh.
-    print("3. Retraining model...")
-    success = train_and_save_model(cleaned_df)
+    print("3. Checking for Data Drift...")
+    from drift_detection import detect_drift
     
-    if success:
-        print("4. Notifying API to reload model...")
+    baseline_path = os.path.join(BASE_DIR, "models", "baseline_data.csv")
+    needs_retraining = True
+    
+    if os.path.exists(baseline_path):
+        baseline_df = pd.read_csv(baseline_path)
+        # Using the last 500 rows to simulate 'recent' data
+        recent_df = cleaned_df.tail(500)
+        
+        # Drop target for drift detection
+        if 'Days_Overdue_Delay' in baseline_df.columns:
+            baseline_features = baseline_df.drop(columns=['Days_Overdue_Delay'])
+        else:
+            baseline_features = baseline_df
+            
+        recent_features = recent_df.drop(columns=['Days_Overdue_Delay'], errors='ignore')
+        
+        drift_detected = detect_drift(baseline_features, recent_features, threshold=0.2)
+        needs_retraining = drift_detected
+    else:
+        print("No baseline data found. Initial training required.")
+
+    success = True
+    if needs_retraining:
+        print("4. Retraining model...")
+        success = train_and_save_model(cleaned_df)
+    else:
+        print("4. Skipping retraining. Model is stable.")
+
+    if success and needs_retraining:
+        print("5. Notifying API to reload model...")
         try:
             response = requests.post(API_URL)
             print(f"API Response: {response.json()}")
