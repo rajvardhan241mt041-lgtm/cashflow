@@ -1,34 +1,163 @@
 version: '3.8'
 
-services:
-  api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile.api
-    ports:
-      - "8000:8000"
-    volumes:
-      - model_volume:/app/models
-    restart: always
+# =============================================================================
+# SAD V1 — Cash Flow Forecasting MLOps Factory
+# Full production docker-compose: PostgreSQL, MLflow, Prefect, API, Worker, UI
+# =============================================================================
 
+services:
+
+  # ---------------------------------------------------------------------------
+  # 1. PostgreSQL — Feature Store Database
+  #    Stores point-in-time feature snapshots for training reproducibility.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: cashflow_postgres
+    environment:
+      POSTGRES_USER: cashflow
+      POSTGRES_PASSWORD: cashflow_secret
+      POSTGRES_DB: cashflow_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cashflow -d cashflow_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # 2. MLflow Tracking Server — Experiment Tracking & Model Registry
+  #    Backend: PostgreSQL (metadata) + local volume (artifacts)
+  #    UI available at http://localhost:5000
+  # ---------------------------------------------------------------------------
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.11.1
+    container_name: cashflow_mlflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlflow/artifacts
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql://cashflow:cashflow_secret@postgres:5432/cashflow_db
+      MLFLOW_DEFAULT_ARTIFACT_ROOT: /mlflow/artifacts
+    command: >
+      mlflow server
+      --backend-store-uri postgresql://cashflow:cashflow_secret@postgres:5432/cashflow_db
+      --default-artifact-root /mlflow/artifacts
+      --host 0.0.0.0
+      --port 5000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # 3. Prefect Server — Workflow Orchestration UI
+  #    Flow scheduler UI available at http://localhost:4200
+  # ---------------------------------------------------------------------------
+  prefect:
+    image: prefecthq/prefect:2-latest
+    container_name: cashflow_prefect
+    ports:
+      - "4200:4200"
+    volumes:
+      - prefect_data:/root/.prefect
+    command: prefect server start --host 0.0.0.0
+    environment:
+      PREFECT_API_URL: http://prefect:4200/api
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4200/api/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # 4. Worker — Prefect-orchestrated nightly MLOps pipeline
+  #    Ingests data → Feature Store → MLflow training → model promotion
+  # ---------------------------------------------------------------------------
   worker:
     build:
       context: ./worker
       dockerfile: Dockerfile.worker
+    container_name: cashflow_worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+      prefect:
+        condition: service_healthy
     volumes:
       - model_volume:/app/models
       - ./data:/app/data
-    restart: always
+    environment:
+      DATABASE_URL: postgresql://cashflow:cashflow_secret@postgres:5432/cashflow_db
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      PREFECT_API_URL: http://prefect:4200/api
+      DATA_PATH: /app/data/Dataset.csv
+      MODEL_DIR: /app/models
+    restart: unless-stopped
 
+  # ---------------------------------------------------------------------------
+  # 5. FastAPI — Model Serving & Scoring API
+  #    Loads Production model from MLflow registry
+  #    API docs at http://localhost:8000/docs
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.api
+    container_name: cashflow_api
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - model_volume:/app/models
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_DIR: /app/models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # 6. Streamlit UI — Collector Dashboard with SHAP Explainability
+  #    Dashboard available at http://localhost:8501
+  # ---------------------------------------------------------------------------
   ui:
     build:
       context: ./ui
       dockerfile: Dockerfile.ui
+    container_name: cashflow_ui
+    depends_on:
+      api:
+        condition: service_healthy
     ports:
       - "8501:8501"
     environment:
-      - API_URL=http://api:8000
-    restart: always
+      API_URL: http://api:8000
+    restart: unless-stopped
 
+# =============================================================================
+# Named Volumes — persistent data across container restarts
+# =============================================================================
 volumes:
-  model_volume:
+  postgres_data:       # PostgreSQL feature store data
+  mlflow_data:         # MLflow artifact store (models, SHAP plots)
+  prefect_data:        # Prefect flow metadata
+  model_volume:        # Shared model files between worker and API (fallback)
