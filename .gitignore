@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Data and Models shouldn't be tracked in Git
+data/*.csv
+models/*.json
+models/*.joblib

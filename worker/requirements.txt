@@ -1,0 +1,7 @@
+pandas
+xgboost
+shap
+scikit-learn
+requests
+schedule
+joblib

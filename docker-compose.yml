@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    volumes:
+      - model_volume:/app/models
+    restart: always
+
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile.worker
+    volumes:
+      - model_volume:/app/models
+      - ./data:/app/data
+    restart: always
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile.ui
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://api:8000
+    restart: always
+
+volumes:
+  model_volume:
